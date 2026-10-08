@@ -156,6 +156,41 @@ mod test {
     }
 
     #[test]
+    fn test_deactivate_agent() {
+        let env = Env::default();
+        let contract_id = env.register(AgentRegistry, ());
+        let client = AgentRegistryClient::new(&env, &contract_id);
+
+        let agent_addr = Address::generate(&env);
+        let services = Map::new(&env);
+
+        env.mock_all_auths();
+
+        client.register_agent(&agent_addr, &String::from_str(&env, "AI Agent Deact"), &services);
+
+        // Registered agents start active.
+        assert!(client.get_agent(&agent_addr).unwrap().active);
+
+        client.deactivate_agent(&agent_addr);
+
+        // active is now false; the record still exists (we did not delete it).
+        let agent = client.get_agent(&agent_addr).unwrap();
+        assert!(!agent.active);
+    }
+
+    #[test]
+    fn test_missing_agent_getters_return_zero() {
+        let env = Env::default();
+        let contract_id = env.register(AgentRegistry, ());
+        let client = AgentRegistryClient::new(&env, &contract_id);
+
+        // An address that was never registered: both getters return 0.
+        let stranger = Address::generate(&env);
+        assert_eq!(client.get_total_earned(&stranger), 0);
+        assert_eq!(client.get_service_price(&stranger, &AgentService::MarketingAnalysis), 0);
+    }
+
+    #[test]
     fn test_service_prices() {
         let env = Env::default();
         let contract_id = env.register(AgentRegistry, ());
