@@ -104,41 +104,47 @@ impl ProposalRegistry {
     pub fn update_status(env: Env, admin: Address, id: String, new_status: String) {
         admin.require_auth();
 
-        if let Some(mut proposal) = env.storage().instance().get::<String, Proposal>(&id) {
-            // Validate status transitions
-            let current = proposal.status.clone();
-            let new_stat = new_status.clone();
+        // Fail loudly if the proposal does not exist (or has expired):
+        // updating a mistyped or expired id must not silently succeed.
+        let mut proposal: Proposal = env
+            .storage()
+            .instance()
+            .get::<String, Proposal>(&id)
+            .expect("update_status: proposal does not exist or has expired");
 
-            let valid_transition = (current == String::from_str(&env, "pending")
-                && (new_stat == String::from_str(&env, "accepted")
+        // Validate status transitions
+        let current = proposal.status.clone();
+        let new_stat = new_status.clone();
+
+        let valid_transition = (current == String::from_str(&env, "pending")
+            && (new_stat == String::from_str(&env, "accepted")
+                || new_stat == String::from_str(&env, "rejected")))
+            || (current == String::from_str(&env, "accepted")
+                && (new_stat == String::from_str(&env, "paid")
                     || new_stat == String::from_str(&env, "rejected")))
-                || (current == String::from_str(&env, "accepted")
-                    && (new_stat == String::from_str(&env, "paid")
-                        || new_stat == String::from_str(&env, "rejected")))
-                || (current == String::from_str(&env, "paid")
-                    && new_stat == String::from_str(&env, "completed"));
+            || (current == String::from_str(&env, "paid")
+                && new_stat == String::from_str(&env, "completed"));
 
-            if !valid_transition {
-                panic!("Invalid status transition");
-            }
-
-            // Update status
-            proposal.status = new_stat.clone();
-            env.storage().instance().set(&id, &proposal);
-
-            // Extend TTL based on status
-            // Paid proposals need longer TTL for audit trail
-            let ttl_extension = if new_stat == String::from_str(&env, "paid") {
-                PAID_TTL_EXTEND
-            } else {
-                TTL_EXTEND
-            };
-
-            // Extend all instance storage TTL
-            env.storage()
-                .instance()
-                .extend_ttl(TTL_THRESHOLD, ttl_extension);
+        if !valid_transition {
+            panic!("Invalid status transition");
         }
+
+        // Update status
+        proposal.status = new_stat.clone();
+        env.storage().instance().set(&id, &proposal);
+
+        // Extend TTL based on status
+        // Paid proposals need longer TTL for audit trail
+        let ttl_extension = if new_stat == String::from_str(&env, "paid") {
+            PAID_TTL_EXTEND
+        } else {
+            TTL_EXTEND
+        };
+
+        // Extend all instance storage TTL
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, ttl_extension);
     }
 
     /// Verify proposal PDF hash matches expected hash.
@@ -292,6 +298,25 @@ mod test {
             &Bytes::from_slice(&env, b"wronghash"),
         );
         assert!(!invalid);
+    }
+
+    #[test]
+    #[should_panic(expected = "update_status: proposal does not exist or has expired")]
+    fn test_update_status_unknown_id_panics() {
+        let env = Env::default();
+        let contract_id = env.register(ProposalRegistry, ());
+        let client = ProposalRegistryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        env.mock_all_auths();
+
+        // No proposal exists for this id: update_status must panic instead of
+        // silently succeeding.
+        client.update_status(
+            &admin,
+            &String::from_str(&env, "no-such-proposal"),
+            &String::from_str(&env, "accepted"),
+        );
     }
 
     #[test]
