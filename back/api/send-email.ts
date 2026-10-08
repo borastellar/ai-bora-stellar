@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { Resend } from 'resend';
+import { timingSafeEqual } from 'crypto';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -73,6 +74,23 @@ function escapeTemplateData(data: any): any {
 const rateBuckets = new Map<string, { count: number; windowStart: number }>();
 const RATE_LIMIT_MAX = 20;
 const RATE_LIMIT_WINDOW_MS = 60_000;
+
+// Shared internal key gating this endpoint (same contract as /api/sign-and-submit).
+// The endpoint is DISABLED (503) unless SEND_EMAIL_API_KEY is configured, so it is
+// safe-by-default: no key on the server means nobody can use the relay.
+const SEND_EMAIL_API_KEY = process.env.SEND_EMAIL_API_KEY || process.env.INTERNAL_API_KEY;
+
+function isValidKey(provided: string | undefined): boolean {
+  if (!SEND_EMAIL_API_KEY || !provided) return false;
+  const expected = Buffer.from(SEND_EMAIL_API_KEY);
+  const actual = Buffer.from(provided);
+  if (expected.length !== actual.length) {
+    // Still run the comparison to keep timing uniform, then report failure.
+    timingSafeEqual(expected, expected);
+    return false;
+  }
+  return timingSafeEqual(expected, actual);
+}
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
@@ -487,6 +505,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // SECURITY: this endpoint sends mail from the company domain via the server's
+  // RESEND_API_KEY. Require an authenticated caller first (shared internal key,
+  // same contract as /api/sign-and-submit). Disabled by default: with no key
+  // configured the endpoint refuses to run, so the open relay is closed.
+  if (!SEND_EMAIL_API_KEY) {
+    return res.status(503).json({
+      error: 'Endpoint disabled',
+      message: 'SEND_EMAIL_API_KEY is not configured on the server.',
+    });
+  }
+  const providedKey =
+    (req.headers['x-api-key'] as string | undefined) ??
+    (req.headers.authorization?.startsWith('Bearer ') ? req.headers.authorization.slice(7) : undefined);
+  if (!isValidKey(providedKey)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   try {
     const { to, templateId, templateData } = req.body;
     if (!to || !templateId) {
@@ -499,7 +535,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Template not found' });
     }
 
-    // Basic per-IP rate limit to stop the open relay being used for spam.
+    // Secondary control: per-IP rate limit on top of the shared-key auth above.
     const clientIp = req.headers['x-forwarded-for']?.toString().split(',')[0].trim() || req.socket?.remoteAddress || 'unknown';
     if (isRateLimited(clientIp)) {
       return res.status(429).json({ error: 'Too many requests — slow down' });
