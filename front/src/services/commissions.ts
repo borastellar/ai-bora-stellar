@@ -3,16 +3,29 @@ import { collection, doc, setDoc, query, where, getDocs, updateDoc } from 'fireb
 
 export interface Commission {
   id: string;
-  invoiceId: string;
+  invoiceId?: string;
+  taskId?: string;
+  clientId?: string;
   salesRepId?: string;
   collaboratorId?: string;
-  saleAmount: number;
+  montoVenta?: number;
+  saleAmount?: number;
   salesRepPercentage: number;
   collaboratorPercentage: number;
-  salesRepAmount: number;
-  collaboratorAmount: number;
+  commissionSalesRep?: number;
+  commissionCollaborator?: number;
+  salesRepAmount?: number;
+  collaboratorAmount?: number;
   status: 'pending' | 'paid';
-  createdAt: Date;
+  createdAt?: Date;
+  fecha?: string;
+}
+
+export function getCommissionDocId(sourceId: string): string {
+  if (!sourceId) {
+    throw new Error('sourceId is required to generate commission document ID');
+  }
+  return `comm_${sourceId}`;
 }
 
 export function calculateCommissions(saleAmount: number, _typeService?: string) {
@@ -38,8 +51,8 @@ export async function generateCommission(
 ): Promise<string> {
   const percentuais = calculateCommissions(saleData.saleAmount);
   
-  const id = 'com-' + Math.random().toString(36).substring(2, 10);
-  
+  const id = getCommissionDocId(invoiceId);
+
   const commission: Omit<Commission, 'id'> = {
     invoiceId,
     salesRepId: saleData.salesRepId,
@@ -52,7 +65,7 @@ export async function generateCommission(
     status: 'pending',
     createdAt: new Date()
   };
-  
+
   await setDoc(doc(db, 'commissions', id), commission);
   return id;
 }
