@@ -1,12 +1,11 @@
+import { lazy, Suspense } from "react";
 import { Route, Switch } from "wouter";
 import { Analytics } from "@vercel/analytics/react";
 import { Home } from "./pages/Home";
 import { Services } from "./pages/Services";
-import { Quote } from "./pages/Quote";
 import { ProposalPage } from "./pages/Proposal";
 import ClientLoginPage from "./pages/ClientLogin";
 import PaymentPage from "./pages/Payment";
-import { Admin } from "./pages/Admin";
 import VerifyPage from "./pages/Verify";
 import RegisterPage from "./pages/Register";
 import Onboarding from "./pages/Onboarding";
@@ -15,9 +14,14 @@ import CollaboratorPage from "./pages/Collaborator";
 import TasksPage from "./pages/Tasks";
 import Academy from "./pages/academia/Academy";
 
+// Load document-export dependencies only when their routes are visited.
+const Quote = lazy(() => import("./pages/Quote").then(({ Quote }) => ({ default: Quote })));
+const Admin = lazy(() => import("./pages/Admin").then(({ Admin }) => ({ default: Admin })));
+
 export default function App() {
   return (
     <>
+      <Suspense fallback={<div role="status">Loading…</div>}>
       <Switch>
         <Route path="/" component={Home} />
         <Route path="/register" component={RegisterPage} />
@@ -48,6 +52,7 @@ export default function App() {
           </div>
         </Route>
       </Switch>
+      </Suspense>
       <Analytics />
     </>
   );
