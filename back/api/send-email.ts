@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
+const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY;
 
 const FOOTER = `
   <tr><td style="background:#1a1a1a;padding:32px 40px 28px;">
@@ -487,6 +488,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // Security: close open email relay by requiring internal API key authentication
+  if (!INTERNAL_API_KEY) {
+    console.error('[SendEmail] DISABLED: INTERNAL_API_KEY not configured');
+    return res.status(503).json({
+      error: 'Endpoint disabled',
+      message: 'INTERNAL_API_KEY is not configured on the server.',
+    });
+  }
+
+  const providedKey = req.headers['x-api-key'] as string | undefined;
+  if (!providedKey || providedKey !== INTERNAL_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
   try {
     const { to, templateId, templateData } = req.body;
     if (!to || !templateId) {
