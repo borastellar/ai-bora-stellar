@@ -1,3 +1,4 @@
+import { getCommissionDocId } from './commissions';
 import { db } from './firebase';
 import { collection, doc, setDoc, getDoc, updateDoc, deleteDoc, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { generateId } from './firebase';
@@ -290,7 +291,7 @@ export async function markTaskPaid(taskId: string): Promise<void> {
       status: 'pending'
     };
     
-    await setDoc(doc(db, 'commissions', taskId), commission);
+    await setDoc(doc(db, 'commissions', getCommissionDocId(taskId)), commission);
   }
   
   await updateTask(taskId, {
