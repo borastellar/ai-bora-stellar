@@ -62,6 +62,12 @@ impl AgentRegistry {
     pub fn record_payment(env: Env, payer: Address, agent: Address, amount: i128) {
         payer.require_auth();
 
+        // Reject non-positive amounts: the ledger is the source of truth for
+        // per-agent earnings, so negative or zero values would corrupt it.
+        if amount <= 0 {
+            panic!("Invalid payment amount: must be positive");
+        }
+
         if let Some(mut agent_data) = env.storage().instance().get::<Address, Agent>(&agent) {
             agent_data.total_earned += amount;
             env.storage().instance().set(&agent, &agent_data);
@@ -171,5 +177,24 @@ mod test {
 
         let price = client.get_service_price(&agent_addr, &AgentService::ContractDraft);
         assert_eq!(price, 2000000);
+    }
+    #[test]
+    #[should_panic(expected = "Invalid payment amount: must be positive")]
+    fn test_record_payment_rejects_negative_amount() {
+        let env = Env::default();
+        let contract_id = env.register(AgentRegistry, ());
+        let client = AgentRegistryClient::new(&env, &contract_id);
+
+        let agent_addr = Address::generate(&env);
+        let payer = Address::generate(&env);
+        let services = Map::new(&env);
+
+        env.mock_all_auths();
+
+        client.register_agent(&agent_addr, &String::from_str(&env, "Neg"), &services);
+
+        client.record_payment(&payer, &agent_addr, &-5000);
+
+        assert_eq!(client.get_total_earned(&agent_addr), 0);
     }
 }
