@@ -68,6 +68,12 @@ impl PaymentSplitter {
     ) -> String {
         admin.require_auth();
 
+        // Reject non-positive totals up front so the contract makes the input
+        // invalid (not just the resulting split), keeping the stored total > 0.
+        if total_amount <= 0 {
+            panic!("Invalid total amount: must be positive");
+        }
+
         // Calculate split: admin gets 70%, collaborator gets remainder
         let admin_amt = (total_amount * 70) / 100;
         let collab_amt = total_amount - admin_amt;
@@ -333,5 +339,54 @@ mod test {
         assert_eq!(admin2 + collab2, 99);
         assert_eq!(admin2, 69);
         assert_eq!(collab2, 30);
+    }
+    #[test]
+    #[should_panic(expected = "Invalid total amount: must be positive")]
+    fn test_create_payment_rejects_zero_total() {
+        let env = Env::default();
+        let contract_id = env.register(PaymentSplitter, ());
+        let client = PaymentSplitterClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let token = Address::generate(&env);
+        let admin_receiver = Address::generate(&env);
+        let collaborator = Address::generate(&env);
+
+        env.mock_all_auths();
+
+        client.create_payment(
+            &admin,
+            &String::from_str(&env, "pay-zero"),
+            &0,
+            &token,
+            &admin_receiver,
+            &collaborator,
+        );
+        assert!(client.get_payment(&String::from_str(&env, "pay-zero")).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid total amount: must be positive")]
+    fn test_create_payment_rejects_negative_total() {
+        let env = Env::default();
+        let contract_id = env.register(PaymentSplitter, ());
+        let client = PaymentSplitterClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let token = Address::generate(&env);
+        let admin_receiver = Address::generate(&env);
+        let collaborator = Address::generate(&env);
+
+        env.mock_all_auths();
+
+        client.create_payment(
+            &admin,
+            &String::from_str(&env, "pay-neg"),
+            &-1000,
+            &token,
+            &admin_receiver,
+            &collaborator,
+        );
+        assert!(client.get_payment(&String::from_str(&env, "pay-neg")).is_none());
     }
 }
