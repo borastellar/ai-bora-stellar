@@ -72,6 +72,10 @@ impl PaymentSplitter {
         // invalid (not just the resulting split), keeping the stored total > 0.
         if total_amount <= 0 {
             panic!("Invalid total amount: must be positive");
+        // Reject duplicate payment IDs: overwriting an existing record would
+        // let a retried request resurrect its status and enable a second split.
+        if env.storage().instance().has(&id) {
+            panic!("Payment id already exists");
         }
 
         // Calculate split: admin gets 70%, collaborator gets remainder
@@ -516,6 +520,8 @@ mod test {
     fn test_execute_split_is_not_repeatable() {
     #[should_panic(expected = "Invalid total amount: must be positive")]
     fn test_create_payment_rejects_zero_total() {
+    #[should_panic(expected = "Payment id already exists")]
+    fn test_create_payment_rejects_duplicate_id() {
         let env = Env::default();
         let contract_id = env.register(PaymentSplitter, ());
         let client = PaymentSplitterClient::new(&env, &contract_id);
@@ -645,5 +651,14 @@ mod test {
             &collaborator,
         );
         assert!(client.get_payment(&String::from_str(&env, "pay-neg")).is_none());
+        let id = String::from_str(&env, "pay-dup");
+        client.create_payment(&admin, &id, &1000000000, &token, &admin_receiver, &collaborator);
+
+        // A retried request with the same id must be rejected rather than
+        // silently overwriting the existing record.
+        client.create_payment(&admin, &id, &1000000000, &token, &admin_receiver, &collaborator);
+
+        let payment = client.get_payment(&id).unwrap();
+        assert_eq!(payment.total_amount, 1000000000);
     }
 }
