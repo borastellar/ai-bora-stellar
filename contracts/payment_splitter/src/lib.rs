@@ -334,4 +334,27 @@ mod test {
         assert_eq!(admin2, 69);
         assert_eq!(collab2, 30);
     }
+    #[test]
+    #[should_panic(expected = "Payment amount too small for split")]
+    fn test_create_payment_rejects_zero_share_total() {
+        let env = Env::default();
+        let contract_id = env.register(PaymentSplitter, ());
+        let client = PaymentSplitterClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let collaborator = Address::generate(&env);
+        let token = Address::generate(&env);
+        env.mock_all_auths();
+
+        // Boundary: 1 micro-unit truncates the 70% admin share to 0
+        // ((1 * 70) / 100 == 0), so create_payment must reject it.
+        client.create_payment(
+            &admin,
+            &String::from_str(&env, "pay-tiny-001"),
+            &1,
+            &token,
+            &admin,
+            &collaborator,
+        );
+    }
 }
