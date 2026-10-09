@@ -162,6 +162,7 @@ mod test {
 
     #[test]
     fn test_deactivate_agent() {
+    fn test_update_rates() {
         let env = Env::default();
         let contract_id = env.register(AgentRegistry, ());
         let client = AgentRegistryClient::new(&env, &contract_id);
@@ -193,6 +194,44 @@ mod test {
         let stranger = Address::generate(&env);
         assert_eq!(client.get_total_earned(&stranger), 0);
         assert_eq!(client.get_service_price(&stranger, &AgentService::MarketingAnalysis), 0);
+        let mut services = Map::new(&env);
+        services.set(AgentService::MarketingAnalysis, 1000000); // 0.1 USDC
+
+        env.mock_all_auths();
+
+        client.register_agent(
+            &agent_addr,
+            &String::from_str(&env, "AI Agent Rates"),
+            &services,
+        );
+
+        // Sanity: original price is what we registered.
+        assert_eq!(
+            client.get_service_price(&agent_addr, &AgentService::MarketingAnalysis),
+            1000000
+        );
+
+        // Update rates to a different map (new price + a new service).
+        let mut new_services = Map::new(&env);
+        new_services.set(AgentService::MarketingAnalysis, 2500000); // 0.25 USDC
+        new_services.set(AgentService::SalesScript, 750000); // 0.075 USDC
+
+        client.update_rates(&agent_addr, &new_services);
+
+        // get_service_price reflects the rewritten map.
+        assert_eq!(
+            client.get_service_price(&agent_addr, &AgentService::MarketingAnalysis),
+            2500000
+        );
+        assert_eq!(
+            client.get_service_price(&agent_addr, &AgentService::SalesScript),
+            750000
+        );
+
+        // update_rates on an unregistered agent is a silent no-op: no panic.
+        let stranger = Address::generate(&env);
+        client.update_rates(&stranger, &new_services);
+        assert!(client.get_agent(&stranger).is_none());
     }
 
     #[test]
