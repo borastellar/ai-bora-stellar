@@ -308,6 +308,7 @@ mod test {
     #[test]
     #[should_panic(expected = "update_status: proposal does not exist or has expired")]
     fn test_update_status_unknown_id_panics() {
+    fn test_store_get_verify_round_trip() {
         let env = Env::default();
         let contract_id = env.register(ProposalRegistry, ());
         let client = ProposalRegistryClient::new(&env, &contract_id);
@@ -322,6 +323,47 @@ mod test {
             &String::from_str(&env, "no-such-proposal"),
             &String::from_str(&env, "accepted"),
         );
+        // A real 32-byte value (a SHA-256 sized digest): 0x00 through 0x1f.
+        let mut hash_bytes: [u8; 32] = [0u8; 32];
+        for (i, slot) in hash_bytes.iter_mut().enumerate() {
+            *slot = i as u8;
+        }
+        let pdf_hash = Bytes::from_slice(&env, &hash_bytes);
+        assert_eq!(hash_bytes.len(), 32);
+
+        env.mock_all_auths();
+
+        // Give the test env a real ledger timestamp so created_at is a
+        // meaningful, non-zero value (it is captured at store time).
+        use soroban_sdk::testutils::Ledger as _;
+        env.ledger().set_timestamp(1_700_000_000);
+
+        client.store_proposal(
+            &admin,
+            &String::from_str(&env, "prop-rt-1"),
+            &String::from_str(&env, "roundtrip@example.com"),
+            &pdf_hash,
+            &2500000000,
+        );
+
+        // Stored, retrievable, and the amount + created_at fields are intact.
+        let stored = client
+            .get_proposal(&String::from_str(&env, "prop-rt-1"))
+            .unwrap();
+        assert_eq!(stored.amount, 2500000000);
+        assert_eq!(stored.created_at, 1_700_000_000);
+        assert_eq!(stored.status, String::from_str(&env, "pending"));
+
+        // The stored hash verifies against itself...
+        let ok = client.verify_hash(&String::from_str(&env, "prop-rt-1"), &pdf_hash);
+        assert!(ok);
+
+        // ...and a one-byte mutation must not (first byte flipped vs the stored hash).
+        let mut bad_bytes = hash_bytes;
+        bad_bytes[0] ^= 0x01;
+        let bad_hash = Bytes::from_slice(&env, &bad_bytes);
+        let bad = client.verify_hash(&String::from_str(&env, "prop-rt-1"), &bad_hash);
+        assert!(!bad);
     }
 
     #[test]
