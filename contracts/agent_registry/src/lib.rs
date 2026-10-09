@@ -108,10 +108,14 @@ impl AgentRegistry {
     }
 }
 
+
 #[cfg(test)]
 mod test {
+    use soroban_sdk::{
+        testutils::Address as _,
+        Address, Env, String,
+    };
     use super::*;
-    use soroban_sdk::testutils::Address as _;
 
     #[test]
     fn test_register_agent() {
@@ -167,8 +171,25 @@ mod test {
     }
 
     #[test]
+    fn test_service_prices() {
+        let env = Env::default();
+        let contract_id = env.register(AgentRegistry, ());
+        let client = AgentRegistryClient::new(&env, &contract_id);
+
+        let agent_addr = Address::generate(&env);
+        let mut services = Map::new(&env);
+        services.set(AgentService::ContractDraft, 2000000); // 0.2 USDC
+
+        env.mock_all_auths();
+
+        client.register_agent(&agent_addr, &String::from_str(&env, "Legal AI"), &services);
+
+        let price = client.get_service_price(&agent_addr, &AgentService::ContractDraft);
+        assert_eq!(price, 2000000);
+    }
+
+#[test]
     fn test_deactivate_agent() {
-    fn test_update_rates() {
         let env = Env::default();
         let contract_id = env.register(AgentRegistry, ());
         let client = AgentRegistryClient::new(&env, &contract_id);
@@ -191,25 +212,18 @@ mod test {
     }
 
     #[test]
-    fn test_missing_agent_getters_return_zero() {
+    fn test_update_rates() {
         let env = Env::default();
         let contract_id = env.register(AgentRegistry, ());
         let client = AgentRegistryClient::new(&env, &contract_id);
 
-        // An address that was never registered: both getters return 0.
-        let stranger = Address::generate(&env);
-        assert_eq!(client.get_total_earned(&stranger), 0);
-        assert_eq!(client.get_service_price(&stranger, &AgentService::MarketingAnalysis), 0);
+        let agent_addr = Address::generate(&env);
         let mut services = Map::new(&env);
         services.set(AgentService::MarketingAnalysis, 1000000); // 0.1 USDC
 
         env.mock_all_auths();
 
-        client.register_agent(
-            &agent_addr,
-            &String::from_str(&env, "AI Agent Rates"),
-            &services,
-        );
+        client.register_agent(&agent_addr, &String::from_str(&env, "AI Agent Rates"), &services);
 
         // Sanity: original price is what we registered.
         assert_eq!(
@@ -241,27 +255,20 @@ mod test {
     }
 
     #[test]
-    fn test_service_prices() {
+    fn test_missing_agent_getters_return_zero() {
         let env = Env::default();
         let contract_id = env.register(AgentRegistry, ());
         let client = AgentRegistryClient::new(&env, &contract_id);
 
-        let agent_addr = Address::generate(&env);
-        let mut services = Map::new(&env);
-        services.set(AgentService::ContractDraft, 2000000); // 0.2 USDC
-
-        env.mock_all_auths();
-
-        client.register_agent(&agent_addr, &String::from_str(&env, "Legal AI"), &services);
-
-        let price = client.get_service_price(&agent_addr, &AgentService::ContractDraft);
-        assert_eq!(price, 2000000);
+        // An address that was never registered: both getters return 0.
+        let stranger = Address::generate(&env);
+        assert_eq!(client.get_total_earned(&stranger), 0);
+        assert_eq!(client.get_service_price(&stranger, &AgentService::MarketingAnalysis), 0);
     }
+
     #[test]
     #[should_panic(expected = "Agent is deactivated - cannot record payment")]
     fn test_record_payment_rejects_deactivated_agent() {
-    #[should_panic(expected = "Invalid payment amount: must be positive")]
-    fn test_record_payment_rejects_negative_amount() {
         let env = Env::default();
         let contract_id = env.register(AgentRegistry, ());
         let client = AgentRegistryClient::new(&env, &contract_id);
@@ -278,10 +285,24 @@ mod test {
         // The active check fires before any state write, so the rejection
         // leaves earnings unchanged.
         client.record_payment(&payer, &agent_addr, &5000000);
+    }
+
+    #[test]
+    #[should_panic(expected = "Invalid payment amount: must be positive")]
+    fn test_record_payment_rejects_negative_amount() {
+        let env = Env::default();
+        let contract_id = env.register(AgentRegistry, ());
+        let client = AgentRegistryClient::new(&env, &contract_id);
+
+        let agent_addr = Address::generate(&env);
+        let payer = Address::generate(&env);
+        let services = Map::new(&env);
+
+        env.mock_all_auths();
+
         client.register_agent(&agent_addr, &String::from_str(&env, "Neg"), &services);
 
+        // Negative amount is rejected before any state write.
         client.record_payment(&payer, &agent_addr, &-5000);
-
-        assert_eq!(client.get_total_earned(&agent_addr), 0);
     }
 }

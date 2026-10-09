@@ -204,11 +204,16 @@ impl ProposalRegistry {
     }
 }
 
+
 #[cfg(test)]
 mod test {
+    use soroban_sdk::{
+        testutils::Address as _,
+        Address, Env, String,
+    };
     use super::*;
-    use soroban_sdk::testutils::Address as _;
 
+    #[test]
     #[test]
     fn test_store_proposal() {
         let env = Env::default();
@@ -236,6 +241,7 @@ mod test {
         assert_eq!(p.status, String::from_str(&env, "pending"));
     }
 
+    #[test]
     #[test]
     fn test_update_status() {
         let env = Env::default();
@@ -274,6 +280,7 @@ mod test {
     }
 
     #[test]
+    #[test]
     fn test_verify_hash() {
         let env = Env::default();
         let contract_id = env.register(ProposalRegistry, ());
@@ -306,9 +313,37 @@ mod test {
     }
 
     #[test]
+    #[test]
+    fn test_extend_ttl() {
+        let env = Env::default();
+        let contract_id = env.register(ProposalRegistry, ());
+        let client = ProposalRegistryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let pdf_hash = Bytes::from_slice(&env, b"abc123def456");
+
+        env.mock_all_auths();
+
+        client.store_proposal(
+            &admin,
+            &String::from_str(&env, "prop-004"),
+            &String::from_str(&env, "client@example.com"),
+            &pdf_hash,
+            &1000000000,
+        );
+
+        // Extend TTL should not fail
+        client.extend_proposal_ttl(&admin);
+
+        // Proposal should still exist
+        let proposal = client.get_proposal(&String::from_str(&env, "prop-004"));
+        assert!(proposal.is_some());
+    }
+
+    #[test]
+    #[test]
     #[should_panic(expected = "update_status: proposal does not exist or has expired")]
     fn test_update_status_unknown_id_panics() {
-    fn test_store_get_verify_round_trip() {
         let env = Env::default();
         let contract_id = env.register(ProposalRegistry, ());
         let client = ProposalRegistryClient::new(&env, &contract_id);
@@ -323,6 +358,17 @@ mod test {
             &String::from_str(&env, "no-such-proposal"),
             &String::from_str(&env, "accepted"),
         );
+    }
+
+    #[test]
+    fn test_store_get_verify_round_trip() {
+        let env = Env::default();
+        let contract_id = env.register(ProposalRegistry, ());
+        let client = ProposalRegistryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        env.mock_all_auths();
+
         // A real 32-byte value (a SHA-256 sized digest): 0x00 through 0x1f.
         let mut hash_bytes: [u8; 32] = [0u8; 32];
         for (i, slot) in hash_bytes.iter_mut().enumerate() {
@@ -366,30 +412,4 @@ mod test {
         assert!(!bad);
     }
 
-    #[test]
-    fn test_extend_ttl() {
-        let env = Env::default();
-        let contract_id = env.register(ProposalRegistry, ());
-        let client = ProposalRegistryClient::new(&env, &contract_id);
-
-        let admin = Address::generate(&env);
-        let pdf_hash = Bytes::from_slice(&env, b"abc123def456");
-
-        env.mock_all_auths();
-
-        client.store_proposal(
-            &admin,
-            &String::from_str(&env, "prop-004"),
-            &String::from_str(&env, "client@example.com"),
-            &pdf_hash,
-            &1000000000,
-        );
-
-        // Extend TTL should not fail
-        client.extend_proposal_ttl(&admin);
-
-        // Proposal should still exist
-        let proposal = client.get_proposal(&String::from_str(&env, "prop-004"));
-        assert!(proposal.is_some());
-    }
 }
