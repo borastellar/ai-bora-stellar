@@ -151,9 +151,14 @@ impl ProposalRegistry {
     ///
     /// # Security
     /// Returns false if proposal doesn't exist or has expired.
+    ///
+    /// Note: `pdf_hash` is a public commitment (anyone holding the id can
+    /// read it via `get_proposal`), so the comparison is not timing-sensitive
+    /// and is performed with a standard equality check.
     pub fn verify_hash(env: Env, id: String, expected_hash: Bytes) -> bool {
         if let Some(proposal) = env.storage().instance().get::<String, Proposal>(&id) {
-            // Constant-time comparison to prevent timing attacks
+            // Standard equality check: the hash is a public commitment, so a
+            // constant-time comparison is not required here.
             proposal.pdf_hash == expected_hash
         } else {
             false
