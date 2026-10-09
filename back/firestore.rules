@@ -137,12 +137,6 @@ service cloud.firestore {
       allow write: if isAdmin() || isOwner(resource.data.salesRepId);
     }
 
-    // Proposals - admin-managed
-    match /proposals/{id} {
-      allow read: if isAuthenticated();
-      allow write: if isAdmin() || isOwner(resource.data.createdBy);
-    }
-
     // Tasks - admin + assigned user
     match /tasks/{id} {
       allow read: if isAuthenticated();
