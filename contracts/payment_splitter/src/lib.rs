@@ -504,6 +504,8 @@ mod test {
     #[test]
     #[should_panic(expected = "Payment amount too small for split")]
     fn test_create_payment_rejects_zero_share_total() {
+    #[should_panic(expected = "Only the admin who created this payment can execute it")]
+    fn test_only_creating_admin_can_execute_split() {
         let env = Env::default();
         let contract_id = env.register(PaymentSplitter, ());
         let client = PaymentSplitterClient::new(&env, &contract_id);
@@ -523,5 +525,38 @@ mod test {
             &admin,
             &collaborator,
         );
+        let creating_admin = Address::generate(&env);
+        let impostor = Address::generate(&env);
+        let collaborator = Address::generate(&env);
+
+        let issuer = soroban_sdk::Address::generate(&env);
+        let asset = env.register_stellar_asset_contract_v2(issuer);
+        let token = asset.address();
+        let total: i128 = 1_000_000_000;
+        env.mock_all_auths();
+
+        // Payment is stored with creating_admin as the 70% recipient.
+        let minter = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+        minter.mint(&creating_admin, &total);
+        let payment_id = client.create_payment(
+            &creating_admin,
+            &String::from_str(&env, "pay-auth-001"),
+            &total,
+            &token,
+            &creating_admin,
+            &collaborator,
+        );
+
+        // The stored admin is the creating admin, NOT the impostor.
+        let p0 = client
+            .get_payment(&String::from_str(&env, "pay-auth-001"))
+            .unwrap();
+        assert_eq!(p0.admin_address, creating_admin);
+        assert_ne!(p0.admin_address, impostor);
+
+        // An address other than the creating admin cannot execute the split.
+        // require_auth is mocked, so it is the stored-admin comparison (not the
+        // auth check) that rejects this caller.
+        client.execute_split(&impostor, &payment_id);
     }
 }
