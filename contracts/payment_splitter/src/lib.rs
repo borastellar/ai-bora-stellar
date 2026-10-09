@@ -324,6 +324,71 @@ mod test {
     }
 
     #[test]
+    fn test_execute_split_transfers() {
+        let env = Env::default();
+        let contract_id = env.register(PaymentSplitter, ());
+        let client = PaymentSplitterClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let collaborator = Address::generate(&env);
+
+        // Register a real Stellar asset contract so token_client.transfer
+        // exercises the actual token interface, not a stub.
+        let issuer = soroban_sdk::Address::generate(&env);
+        let asset = env.register_stellar_asset_contract_v2(issuer);
+        let asset_client = token::Client::new(&env, &asset.address());
+        let token = asset.address();
+
+        let total: i128 = 1_000_000_000;
+        env.mock_all_auths();
+
+        // Fund the admin (the transfer source in execute_split).
+        let minter = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+        minter.mint(&admin, &total);
+        assert_eq!(asset_client.balance(&admin), total);
+        assert_eq!(asset_client.balance(&collaborator), 0);
+
+        let payment_id = client.create_payment(
+            &admin,
+            &String::from_str(&env, "pay-exec-001"),
+            &total,
+            &token,
+            &admin,
+            &collaborator,
+        );
+
+        // Payment must be pending and stored with the paying admin as the
+        // 70% recipient (execute_split transfers FROM the admin TO the admin's
+        // own address + the collaborator).
+        let p0 = client.get_payment(&String::from_str(&env, "pay-exec-001")).unwrap();
+        assert_eq!(p0.admin_address, admin, "stored 70% recipient must be the paying admin");
+        assert_eq!(p0.status, String::from_str(&env, "pending"));
+
+        let (admin_amt, collab_amt) = client.execute_split(&admin, &payment_id);
+        assert_eq!(admin_amt, 700_000_000, "admin must receive 70%");
+        assert_eq!(collab_amt, 300_000_000, "collaborator must receive 30%");
+
+        // Recipient balances: admin nets back their 70% (transferred to their
+        // own address), collaborator receives the 30%.
+        assert_eq!(
+            asset_client.balance(&admin),
+            700_000_000,
+            "paying admin holds their 70% share"
+        );
+        assert_eq!(
+            asset_client.balance(&collaborator),
+            300_000_000,
+            "collaborator holds 30%"
+        );
+
+        // Payment must be marked completed.
+        let payment = client
+            .get_payment(&String::from_str(&env, "pay-exec-001"))
+            .unwrap();
+        assert_eq!(payment.status, String::from_str(&env, "completed"));
+    }
+
+    #[test]
     fn test_calculate_split() {
         let (admin, collab) = PaymentSplitter::calculate_split(1000000000);
         assert_eq!(admin, 700000000);
