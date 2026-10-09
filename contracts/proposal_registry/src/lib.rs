@@ -407,6 +407,7 @@ fn test_extend_ttl() {
     #[should_panic(expected = "Invalid status transition")]
     fn test_reject_invalid_transition() {
     fn test_get_status() {
+    fn test_lifecycle_pending_accepted_paid_completed() {
         let env = Env::default();
         let contract_id = env.register(ProposalRegistry, ());
         let client = ProposalRegistryClient::new(&env, &contract_id);
@@ -414,6 +415,7 @@ fn test_extend_ttl() {
         let admin = Address::generate(&env);
         let pdf_hash = Bytes::from_slice(&env, b"tr-hex");
         let pdf_hash = Bytes::from_slice(&env, b"gs-hex");
+        let pdf_hash = Bytes::from_slice(&env, b"lc-hex");
 
         env.mock_all_auths();
 
@@ -421,6 +423,7 @@ fn test_extend_ttl() {
             &admin,
             &String::from_str(&env, "tr-1"),
             &String::from_str(&env, "gs-1"),
+            &String::from_str(&env, "lc-1"),
             &String::from_str(&env, "client@example.com"),
             &pdf_hash,
             &1000000000,
@@ -437,5 +440,16 @@ fn test_extend_ttl() {
 
         // An unknown id has no proposal, so get_status returns None.
         assert!(client.get_status(&String::from_str(&env, "nope")).is_none());
+        // pending -> accepted
+        client.update_status(&admin, &String::from_str(&env, "lc-1"), &String::from_str(&env, "accepted"));
+        assert_eq!(client.get_status(&String::from_str(&env, "lc-1")).unwrap(), String::from_str(&env, "accepted"));
+
+        // accepted -> paid
+        client.update_status(&admin, &String::from_str(&env, "lc-1"), &String::from_str(&env, "paid"));
+        assert_eq!(client.get_status(&String::from_str(&env, "lc-1")).unwrap(), String::from_str(&env, "paid"));
+
+        // paid -> completed
+        client.update_status(&admin, &String::from_str(&env, "lc-1"), &String::from_str(&env, "completed"));
+        assert_eq!(client.get_status(&String::from_str(&env, "lc-1")).unwrap(), String::from_str(&env, "completed"));
     }
 }
