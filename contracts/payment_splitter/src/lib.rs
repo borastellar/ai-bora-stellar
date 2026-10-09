@@ -578,5 +578,24 @@ mod test {
 
         // Second execution must be rejected by the reentrancy guard.
         client.execute_split(&admin, &payment_id);
+
+    #[test]
+    fn test_calculate_split_boundaries() {
+        // Boundary totals around the 70/30 truncation point. For each, the two
+        // shares must always sum to the input, and the admin share must be the
+        // floor of (total * 70) / 100 (integer division truncates the fraction
+        // so the remainder always lands on the collaborator).
+        let cases = [1, 3, 10, 99, 100, 101];
+        for total in cases {
+            let (admin, collab) = PaymentSplitter::calculate_split(total);
+            assert_eq!(admin + collab, total, "shares must sum to total (total={})", total);
+        }
+        // Pinned expected values for the rounding cases.
+        assert_eq!(PaymentSplitter::calculate_split(1), (0, 1));
+        assert_eq!(PaymentSplitter::calculate_split(3), (2, 1));
+        assert_eq!(PaymentSplitter::calculate_split(10), (7, 3));
+        assert_eq!(PaymentSplitter::calculate_split(99), (69, 30));
+        assert_eq!(PaymentSplitter::calculate_split(100), (70, 30));
+        assert_eq!(PaymentSplitter::calculate_split(101), (70, 31));
     }
 }
