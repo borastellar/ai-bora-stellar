@@ -62,6 +62,12 @@ impl AgentRegistry {
     pub fn record_payment(env: Env, payer: Address, agent: Address, amount: i128) {
         payer.require_auth();
 
+        // Reject non-positive amounts: the ledger is the source of truth for
+        // per-agent earnings, so negative or zero values would corrupt it.
+        if amount <= 0 {
+            panic!("Invalid payment amount: must be positive");
+        }
+
         if let Some(mut agent_data) = env.storage().instance().get::<Address, Agent>(&agent) {
             // Deactivation is meant to close the payment path for this agent;
             // paying a deactivated agent would defeat the active flag.
@@ -254,6 +260,8 @@ mod test {
     #[test]
     #[should_panic(expected = "Agent is deactivated - cannot record payment")]
     fn test_record_payment_rejects_deactivated_agent() {
+    #[should_panic(expected = "Invalid payment amount: must be positive")]
+    fn test_record_payment_rejects_negative_amount() {
         let env = Env::default();
         let contract_id = env.register(AgentRegistry, ());
         let client = AgentRegistryClient::new(&env, &contract_id);
@@ -270,6 +278,10 @@ mod test {
         // The active check fires before any state write, so the rejection
         // leaves earnings unchanged.
         client.record_payment(&payer, &agent_addr, &5000000);
+        client.register_agent(&agent_addr, &String::from_str(&env, "Neg"), &services);
+
+        client.record_payment(&payer, &agent_addr, &-5000);
+
         assert_eq!(client.get_total_earned(&agent_addr), 0);
     }
 }
