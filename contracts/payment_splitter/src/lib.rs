@@ -334,4 +334,39 @@ mod test {
         assert_eq!(admin2, 69);
         assert_eq!(collab2, 30);
     }
+    #[test]
+    #[should_panic(expected = "Payment already executed - cannot split again")]
+    fn test_execute_split_is_not_repeatable() {
+        let env = Env::default();
+        let contract_id = env.register(PaymentSplitter, ());
+        let client = PaymentSplitterClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let collaborator = Address::generate(&env);
+
+        let issuer = soroban_sdk::Address::generate(&env);
+        let asset = env.register_stellar_asset_contract_v2(issuer);
+        let token = asset.address();
+        let total: i128 = 1_000_000_000;
+        env.mock_all_auths();
+
+        // A real first split must succeed so the repeat-call guard, not a
+        // missing payment, is what panics on the second call.
+        let minter = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+        minter.mint(&admin, &total);
+        let payment_id = client.create_payment(
+            &admin,
+            &String::from_str(&env, "pay-once-001"),
+            &total,
+            &token,
+            &admin,
+            &collaborator,
+        );
+        let (admin_amt, collab_amt) = client.execute_split(&admin, &payment_id);
+        assert_eq!(admin_amt, 700_000_000);
+        assert_eq!(collab_amt, 300_000_000);
+
+        // Second execution must be rejected by the reentrancy guard.
+        client.execute_split(&admin, &payment_id);
+    }
 }
