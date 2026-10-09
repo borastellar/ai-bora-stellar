@@ -406,18 +406,21 @@ fn test_extend_ttl() {
     #[test]
     #[should_panic(expected = "Invalid status transition")]
     fn test_reject_invalid_transition() {
+    fn test_get_status() {
         let env = Env::default();
         let contract_id = env.register(ProposalRegistry, ());
         let client = ProposalRegistryClient::new(&env, &contract_id);
 
         let admin = Address::generate(&env);
         let pdf_hash = Bytes::from_slice(&env, b"tr-hex");
+        let pdf_hash = Bytes::from_slice(&env, b"gs-hex");
 
         env.mock_all_auths();
 
         client.store_proposal(
             &admin,
             &String::from_str(&env, "tr-1"),
+            &String::from_str(&env, "gs-1"),
             &String::from_str(&env, "client@example.com"),
             &pdf_hash,
             &1000000000,
@@ -429,5 +432,10 @@ fn test_extend_ttl() {
             &String::from_str(&env, "tr-1"),
             &String::from_str(&env, "paid"),
         );
+        // A stored proposal is pending, so get_status returns Some("pending").
+        assert_eq!(client.get_status(&String::from_str(&env, "gs-1")).unwrap(), String::from_str(&env, "pending"));
+
+        // An unknown id has no proposal, so get_status returns None.
+        assert!(client.get_status(&String::from_str(&env, "nope")).is_none());
     }
 }
