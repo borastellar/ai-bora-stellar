@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { initializeApp, cert, getApps } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { consumeClientLogin } from '../services/client-login-consume';
 
 if (!getApps().length) {
   initializeApp({
@@ -25,32 +26,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Token is required' });
   }
 
-  const docRef = db.collection('client_logins').doc(String(token));
-  const snap = await docRef.get();
+  // Consume the token atomically (read + mark-used in one Firestore
+  // transaction) so two concurrent redemptions cannot both succeed.
+  const result = await consumeClientLogin(db, String(token));
 
-  if (!snap.exists) {
-    return res.status(400).json({ error: 'Link invalid' });
+  switch (result.status) {
+    case 'OK':
+      return res.status(200).json({
+        success: true,
+        clientId: result.clientId,
+        email: result.email,
+      });
+    case 'INVALID':
+      return res.status(400).json({ error: 'Link invalid' });
+    case 'ALREADY_USED':
+      return res.status(400).json({ error: 'Link already used' });
+    case 'EXPIRED':
+      return res.status(400).json({ error: 'Link expired' });
   }
-
-  const login = snap.data();
-
-  if (!login) {
-    return res.status(400).json({ error: 'Link invalid' });
-  }
-
-  if (login.used) {
-    return res.status(400).json({ error: 'Link already used' });
-  }
-
-  if (new Date(login.expiresAt) < new Date()) {
-    return res.status(400).json({ error: 'Link expired' });
-  }
-
-  await docRef.update({ used: true, usedAt: new Date().toISOString() });
-
-  return res.status(200).json({
-    success: true,
-    clientId: login.clientId,
-    email: login.email,
-  });
 }
