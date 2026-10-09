@@ -63,6 +63,11 @@ impl AgentRegistry {
         payer.require_auth();
 
         if let Some(mut agent_data) = env.storage().instance().get::<Address, Agent>(&agent) {
+            // Deactivation is meant to close the payment path for this agent;
+            // paying a deactivated agent would defeat the active flag.
+            if !agent_data.active {
+                panic!("Agent is deactivated - cannot record payment");
+            }
             agent_data.total_earned += amount;
             env.storage().instance().set(&agent, &agent_data);
         }
@@ -206,5 +211,26 @@ mod test {
 
         let price = client.get_service_price(&agent_addr, &AgentService::ContractDraft);
         assert_eq!(price, 2000000);
+    }
+    #[test]
+    #[should_panic(expected = "Agent is deactivated - cannot record payment")]
+    fn test_record_payment_rejects_deactivated_agent() {
+        let env = Env::default();
+        let contract_id = env.register(AgentRegistry, ());
+        let client = AgentRegistryClient::new(&env, &contract_id);
+
+        let agent_addr = Address::generate(&env);
+        let payer = Address::generate(&env);
+        let services = Map::new(&env);
+
+        env.mock_all_auths();
+
+        client.register_agent(&agent_addr, &String::from_str(&env, "Deact"), &services);
+        client.deactivate_agent(&agent_addr);
+
+        // The active check fires before any state write, so the rejection
+        // leaves earnings unchanged.
+        client.record_payment(&payer, &agent_addr, &5000000);
+        assert_eq!(client.get_total_earned(&agent_addr), 0);
     }
 }
