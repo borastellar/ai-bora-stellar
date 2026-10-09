@@ -212,10 +212,8 @@ mod test {
         Address, Env, String,
     };
     use super::*;
-
     #[test]
-    #[test]
-    fn test_store_proposal() {
+fn test_store_proposal() {
         let env = Env::default();
         let contract_id = env.register(ProposalRegistry, ());
         let client = ProposalRegistryClient::new(&env, &contract_id);
@@ -240,10 +238,8 @@ mod test {
         assert_eq!(p.client_email, String::from_str(&env, "client@example.com"));
         assert_eq!(p.status, String::from_str(&env, "pending"));
     }
-
     #[test]
-    #[test]
-    fn test_update_status() {
+fn test_update_status() {
         let env = Env::default();
         let contract_id = env.register(ProposalRegistry, ());
         let client = ProposalRegistryClient::new(&env, &contract_id);
@@ -278,10 +274,8 @@ mod test {
             .unwrap();
         assert_eq!(proposal.status, String::from_str(&env, "paid"));
     }
-
     #[test]
-    #[test]
-    fn test_verify_hash() {
+fn test_verify_hash() {
         let env = Env::default();
         let contract_id = env.register(ProposalRegistry, ());
         let client = ProposalRegistryClient::new(&env, &contract_id);
@@ -311,10 +305,8 @@ mod test {
         );
         assert!(!invalid);
     }
-
     #[test]
-    #[test]
-    fn test_extend_ttl() {
+fn test_extend_ttl() {
         let env = Env::default();
         let contract_id = env.register(ProposalRegistry, ());
         let client = ProposalRegistryClient::new(&env, &contract_id);
@@ -339,10 +331,8 @@ mod test {
         let proposal = client.get_proposal(&String::from_str(&env, "prop-004"));
         assert!(proposal.is_some());
     }
-
     #[test]
-    #[test]
-    #[should_panic(expected = "update_status: proposal does not exist or has expired")]
+#[should_panic(expected = "update_status: proposal does not exist or has expired")]
     fn test_update_status_unknown_id_panics() {
         let env = Env::default();
         let contract_id = env.register(ProposalRegistry, ());
@@ -412,4 +402,36 @@ mod test {
         assert!(!bad);
     }
 
+
+    #[test]
+    fn test_lifecycle_pending_accepted_paid_completed() {
+        let env = Env::default();
+        let contract_id = env.register(ProposalRegistry, ());
+        let client = ProposalRegistryClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let pdf_hash = Bytes::from_slice(&env, b"lc-hex");
+
+        env.mock_all_auths();
+
+        client.store_proposal(
+            &admin,
+            &String::from_str(&env, "lc-1"),
+            &String::from_str(&env, "client@example.com"),
+            &pdf_hash,
+            &1000000000,
+        );
+
+        // pending -> accepted
+        client.update_status(&admin, &String::from_str(&env, "lc-1"), &String::from_str(&env, "accepted"));
+        assert_eq!(client.get_status(&String::from_str(&env, "lc-1")).unwrap(), String::from_str(&env, "accepted"));
+
+        // accepted -> paid
+        client.update_status(&admin, &String::from_str(&env, "lc-1"), &String::from_str(&env, "paid"));
+        assert_eq!(client.get_status(&String::from_str(&env, "lc-1")).unwrap(), String::from_str(&env, "paid"));
+
+        // paid -> completed
+        client.update_status(&admin, &String::from_str(&env, "lc-1"), &String::from_str(&env, "completed"));
+        assert_eq!(client.get_status(&String::from_str(&env, "lc-1")).unwrap(), String::from_str(&env, "completed"));
+    }
 }
