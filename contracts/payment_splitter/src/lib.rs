@@ -389,6 +389,108 @@ mod test {
     }
 
     #[test]
+    #[should_panic(expected = "Payment already executed - cannot split again")]
+    fn test_execute_split_is_not_repeatable() {
+        let env = Env::default();
+        let contract_id = env.register(PaymentSplitter, ());
+        let client = PaymentSplitterClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let collaborator = Address::generate(&env);
+
+        let issuer = soroban_sdk::Address::generate(&env);
+        let asset = env.register_stellar_asset_contract_v2(issuer);
+        let token = asset.address();
+        let total: i128 = 1_000_000_000;
+        env.mock_all_auths();
+
+        // A real first split must succeed so the repeat-call guard, not a
+        // missing payment, is what panics on the second call.
+        let minter = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+        minter.mint(&admin, &total);
+        let payment_id = client.create_payment(
+            &admin,
+            &String::from_str(&env, "pay-once-001"),
+            &total,
+            &token,
+            &admin,
+            &collaborator,
+        );
+        let (admin_amt, collab_amt) = client.execute_split(&admin, &payment_id);
+        assert_eq!(admin_amt, 700_000_000);
+        assert_eq!(collab_amt, 300_000_000);
+
+        // Second execution must be rejected by the reentrancy guard.
+        client.execute_split(&admin, &payment_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the admin who created this payment can execute it")]
+    fn test_only_creating_admin_can_execute_split() {
+        let env = Env::default();
+        let contract_id = env.register(PaymentSplitter, ());
+        let client = PaymentSplitterClient::new(&env, &contract_id);
+
+        let creating_admin = Address::generate(&env);
+        let impostor = Address::generate(&env);
+        let collaborator = Address::generate(&env);
+
+        let issuer = soroban_sdk::Address::generate(&env);
+        let asset = env.register_stellar_asset_contract_v2(issuer);
+        let token = asset.address();
+        let total: i128 = 1_000_000_000;
+        env.mock_all_auths();
+
+        // Payment is stored with creating_admin as the 70% recipient.
+        let minter = soroban_sdk::token::StellarAssetClient::new(&env, &token);
+        minter.mint(&creating_admin, &total);
+        let payment_id = client.create_payment(
+            &creating_admin,
+            &String::from_str(&env, "pay-auth-001"),
+            &total,
+            &token,
+            &creating_admin,
+            &collaborator,
+        );
+
+        // The stored admin is the creating admin, NOT the impostor.
+        let p0 = client
+            .get_payment(&String::from_str(&env, "pay-auth-001"))
+            .unwrap();
+        assert_eq!(p0.admin_address, creating_admin);
+        assert_ne!(p0.admin_address, impostor);
+
+        // An address other than the creating admin cannot execute the split.
+        // require_auth is mocked, so it is the stored-admin comparison (not the
+        // auth check) that rejects this caller.
+        client.execute_split(&impostor, &payment_id);
+    }
+
+    #[test]
+    #[should_panic(expected = "Payment amount too small for split")]
+    fn test_create_payment_rejects_zero_share_total() {
+        let env = Env::default();
+        let contract_id = env.register(PaymentSplitter, ());
+        let client = PaymentSplitterClient::new(&env, &contract_id);
+
+        let admin = Address::generate(&env);
+        let collaborator = Address::generate(&env);
+        let token = Address::generate(&env);
+        env.mock_all_auths();
+
+        // Boundary: 1 micro-unit truncates the 70% admin share to 0
+        // ((1 * 70) / 100 == 0), so create_payment must reject it.
+        client.create_payment(
+            &admin,
+            &String::from_str(&env, "pay-tiny-001"),
+            &1,
+            &token,
+            &admin,
+            &collaborator,
+        );
+    }
+
+    #[test]
     fn test_calculate_split() {
         let (admin, collab) = PaymentSplitter::calculate_split(1000000000);
         assert_eq!(admin, 700000000);
